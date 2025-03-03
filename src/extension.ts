@@ -10,7 +10,6 @@ import {
   ArrowFunction,
   FunctionExpression,
   JSDoc,
-  VariableDeclaration,
 } from "ts-morph";
 import ignore from "ignore";
 
@@ -53,9 +52,9 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
-  // D3.js可視化コマンドの登録
-  const d3VisCommand = vscode.commands.registerCommand(
-    "code-is-document.showMermaidDiagram", // コマンド名はそのまま
+  // 新しいコマンド（D3.js可視化）の登録
+  const visualizeCommand = vscode.commands.registerCommand(
+    "code-is-document.visualizeStructure",
     async () => {
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (!workspaceFolders) {
@@ -67,21 +66,565 @@ export function activate(context: vscode.ExtensionContext) {
         // 現在のワークスペースのルートパス
         const rootPath = workspaceFolders[0].uri.fsPath;
 
-        // コード解析の実行
-        const result = await analyzeCode(rootPath);
+        // YAMLファイルのパス
+        const yamlPath = path.join(rootPath, "code-document.yaml");
 
-        // D3.js用データ構造に変換
-        const d3Data = generateD3Data(result);
+        // YAMLファイルが存在するか確認
+        if (!fs.existsSync(yamlPath)) {
+          const result = await vscode.window.showWarningMessage(
+            "コード構造ファイル(code-document.yaml)が見つかりません。今すぐ生成しますか？",
+            "はい",
+            "いいえ"
+          );
 
-        // D3.jsで可視化
-        showD3Visualization(context.extensionUri, d3Data);
+          if (result === "はい") {
+            // 解析コマンドを実行
+            await vscode.commands.executeCommand(
+              "code-is-document.showDependencies"
+            );
+          } else {
+            return;
+          }
+        }
+
+        // YAMLファイルを読み込む
+        const yamlContent = fs.readFileSync(yamlPath, "utf8");
+        const projectData = yaml.load(yamlContent);
+
+        // ウェブビューパネルを作成
+        const panel = vscode.window.createWebviewPanel(
+          "codeVisualization",
+          "コード構造の可視化",
+          vscode.ViewColumn.One,
+          {
+            enableScripts: true,
+            localResourceRoots: [vscode.Uri.file(context.extensionPath)],
+          }
+        );
+
+        // ウェブビューのHTMLを設定
+        panel.webview.html = getVisualizationHtml(projectData);
+
+        // メッセージハンドラーを設定
+        panel.webview.onDidReceiveMessage(
+          (message) => {
+            switch (message.command) {
+              case "alert":
+                vscode.window.showInformationMessage(message.text);
+                return;
+            }
+          },
+          undefined,
+          context.subscriptions
+        );
       } catch (error) {
         vscode.window.showErrorMessage(`エラーが発生しました: ${error}`);
       }
     }
   );
 
-  context.subscriptions.push(dependenciesCommand, d3VisCommand);
+  context.subscriptions.push(dependenciesCommand);
+  context.subscriptions.push(visualizeCommand);
+}
+
+// 可視化用のHTMLを生成する関数
+function getVisualizationHtml(projectData: any): string {
+  return `
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>コード構造の可視化</title>
+      <script src="https://d3js.org/d3.v7.min.js"></script>
+      <style>
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+          margin: 0;
+          padding: 10px;
+          background-color: var(--vscode-editor-background);
+          color: var(--vscode-editor-foreground);
+          overflow: auto;
+        }
+        
+        svg {
+          min-width: 100%;
+          min-height: 800px;
+        }
+        
+        .node circle {
+          stroke-width: 1.5px;
+        }
+        
+        .node text {
+          font-size: 12px;
+          fill: var(--vscode-editor-foreground);
+          font-weight: normal;
+        }
+        
+        .node-file circle {
+          fill: #4686c6;
+          stroke: #3973a8;
+        }
+        
+        .node-directory circle {
+          fill: #e8b03c;
+          stroke: #c99c2e;
+        }
+        
+        /* ノードにマウスオーバーした時のハイライト */
+        .node:hover circle {
+          stroke-width: 2.5px;
+          filter: brightness(1.2);
+        }
+        
+        .node:hover text {
+          font-weight: bold;
+        }
+        
+        .link {
+          fill: none;
+          stroke: var(--vscode-editorIndentGuide-background);
+          stroke-width: 1.5px;
+          opacity: 0.7;
+        }
+        
+        .tooltip {
+          position: absolute;
+          padding: 10px;
+          background-color: var(--vscode-editor-background);
+          color: var(--vscode-editor-foreground);
+          border: 1px solid var(--vscode-editorWidget-border);
+          border-radius: 5px;
+          box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
+          pointer-events: none;
+          max-width: 400px;
+          z-index: 10;
+        }
+        
+        .tooltip strong {
+          color: var(--vscode-editorLink-activeForeground);
+        }
+        
+        .tooltip small {
+          color: var(--vscode-descriptionForeground);
+        }
+        
+        .controls {
+          margin-bottom: 20px;
+          position: fixed;
+          top: 10px;
+          right: 10px;
+          z-index: 100;
+          background-color: var(--vscode-editor-background);
+          padding: 10px;
+          border-radius: 5px;
+          border: 1px solid var(--vscode-widget-border);
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+        }
+        
+        button {
+          background-color: var(--vscode-button-background);
+          color: var(--vscode-button-foreground);
+          border: none;
+          padding: 6px 12px;
+          cursor: pointer;
+          border-radius: 2px;
+          margin-right: 5px;
+        }
+        
+        button:hover {
+          background-color: var(--vscode-button-hoverBackground);
+        }
+        
+        h1 {
+          color: var(--vscode-titleBar-activeForeground);
+          font-size: 22px;
+          margin-bottom: 20px;
+        }
+        
+        .legend {
+          position: fixed;
+          bottom: 20px;
+          left: 20px;
+          background-color: var(--vscode-editor-background);
+          border: 1px solid var(--vscode-widget-border);
+          padding: 10px;
+          border-radius: 5px;
+          z-index: 100;
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+        }
+        
+        .legend-item {
+          display: flex;
+          align-items: center;
+          margin-bottom: 8px;
+        }
+        
+        .legend-item:last-child {
+          margin-bottom: 0;
+        }
+        
+        .legend-color {
+          width: 16px;
+          height: 16px;
+          border-radius: 50%;
+          margin-right: 8px;
+        }
+        
+        .legend-directory {
+          background-color: #e8b03c;
+          border: 1.5px solid #c99c2e;
+        }
+        
+        .legend-file {
+          background-color: #4686c6;
+          border: 1.5px solid #3973a8;
+        }
+      </style>
+    </head>
+    <body>
+      <h1>コード構造の可視化</h1>
+      <div class="controls">
+        <button id="zoomIn">拡大</button>
+        <button id="zoomOut">縮小</button>
+        <button id="resetZoom">リセット</button>
+      </div>
+      <div class="legend">
+        <div class="legend-item">
+          <div class="legend-color legend-directory"></div>
+          <span>ディレクトリ</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color legend-file"></div>
+          <span>ファイル</span>
+        </div>
+      </div>
+      <div id="visualization"></div>
+      
+      <script>
+        (function() {
+          // プロジェクトデータをJavaScriptオブジェクトとして渡す
+          const projectData = ${JSON.stringify(projectData)};
+          
+          // D3.jsを使用した可視化の実装
+          const width = Math.max(window.innerWidth - 40, 1200);
+          const height = Math.max(window.innerHeight - 100, 800);
+          
+          // ツールチップの作成
+          const tooltip = d3.select("body").append("div")
+            .attr("class", "tooltip")
+            .style("opacity", 0);
+          
+          // SVG要素の作成
+          const svg = d3.select("#visualization").append("svg")
+            .attr("width", width)
+            .attr("height", height)
+            .call(d3.zoom().on("zoom", (event) => {
+              g.attr("transform", event.transform);
+            }));
+          
+          const g = svg.append("g");
+          
+          // 階層構造用のレイアウト関数を定義
+          // 十分な垂直スペースを確保するためにサイズを大きくする
+          const nodeCount = countNodes(projectData);
+          const dynamicHeight = Math.max(height, nodeCount * 20); // 各ノードに少なくとも20pxの垂直スペースを確保
+          
+          const tree = d3.tree()
+            .size([dynamicHeight, width - 300])
+            .separation((a, b) => {
+              // 隣接するノード間の距離を調整
+              // 同じ親を持つノード間は距離を広げる
+              return (a.parent === b.parent ? 1.5 : 2);
+            });
+          
+          // プロジェクト内のノード数を数える補助関数
+          function countNodes(data) {
+            let count = 0;
+            
+            function countDir(dir) {
+              // ファイルをカウント
+              if (dir.files) {
+                count += dir.files.length;
+              }
+              
+              // サブディレクトリを再帰的にカウント
+              if (dir.directories) {
+                count += Object.keys(dir.directories).length;
+                for (const subDirName in dir.directories) {
+                  countDir(dir.directories[subDirName]);
+                }
+              }
+            }
+            
+            countDir(data.root);
+            return count;
+          }
+          
+          // プロジェクトデータを階層構造に変換
+          function convertToHierarchy(data) {
+            const root = { name: data.root.path, children: [] };
+            
+            // ディレクトリの追加
+            if (data.root.directories) {
+              for (const dirName in data.root.directories) {
+                const dir = data.root.directories[dirName];
+                const dirNode = { name: dirName, type: "directory", children: [] };
+                
+                // サブディレクトリとファイルを再帰的に追加
+                addDirectoryContents(dir, dirNode);
+                root.children.push(dirNode);
+              }
+            }
+            
+            // ルートディレクトリ直下のファイルを追加
+            if (data.root.files) {
+              data.root.files.forEach(file => {
+                // ファイルの全プロパティを保持
+                const fileNode = {
+                  name: file.name,
+                  path: file.path,
+                  type: "file",
+                  description: file.fileDescription || null,
+                };
+                
+                // その他すべてのプロパティをコピー
+                for (const key in file) {
+                  if (key !== "name" && key !== "path" && key !== "fileDescription") {
+                    fileNode[key] = file[key];
+                  }
+                }
+                
+                root.children.push(fileNode);
+              });
+            }
+            
+            return root;
+          }
+          
+          // ディレクトリの内容を再帰的に追加する関数
+          function addDirectoryContents(dir, parentNode) {
+            // サブディレクトリを追加
+            if (dir.directories) {
+              for (const subDirName in dir.directories) {
+                const subDir = dir.directories[subDirName];
+                const subDirNode = { name: subDirName, type: "directory", children: [] };
+                
+                addDirectoryContents(subDir, subDirNode);
+                parentNode.children.push(subDirNode);
+              }
+            }
+            
+            // ファイルを追加
+            if (dir.files) {
+              dir.files.forEach(file => {
+                // ファイルの全プロパティを保持
+                const fileNode = {
+                  name: file.name,
+                  path: file.path,
+                  type: "file",
+                  description: file.fileDescription || null,
+                };
+                
+                // その他すべてのプロパティをコピー
+                for (const key in file) {
+                  if (key !== "name" && key !== "path" && key !== "fileDescription") {
+                    fileNode[key] = file[key];
+                  }
+                }
+                
+                parentNode.children.push(fileNode);
+              });
+            }
+          }
+          
+          // 階層データを作成
+          const hierarchyData = convertToHierarchy(projectData);
+          
+          // D3の階層構造を生成
+          const root = d3.hierarchy(hierarchyData);
+          
+          // ツリーレイアウトを適用
+          tree(root);
+          
+          // リンク（線）の描画
+          const link = g.selectAll(".link")
+            .data(root.links())
+            .enter().append("path")
+            .attr("class", "link")
+            .attr("d", d3.linkHorizontal()
+              .x(d => d.y)
+              .y(d => d.x));
+          
+          // ノードの描画
+          const node = g.selectAll(".node")
+            .data(root.descendants())
+            .enter().append("g")
+            .attr("class", d => "node " + (d.data.type === "file" ? "node-file" : "node-directory"))
+            .attr("transform", d => \`translate(\${d.y},\${d.x})\`);
+          
+          // ノードの円を描画
+          node.append("circle")
+            .attr("r", d => d.data.type === "directory" ? 10 : 7)
+            .attr("title", d => d.data.name);
+          
+          // ノードのテキストを描画
+          node.append("text")
+            .attr("dy", 3)
+            .attr("x", d => d.children ? -15 : 15)
+            .style("text-anchor", d => d.children ? "end" : "start")
+            .text(d => d.data.name)
+            .style("font-size", "12px");
+          
+          // マウスイベントの設定
+          node.on("mouseover", function(event, d) {
+            // ノードをハイライト
+            d3.select(this).select("circle")
+              .transition()
+              .duration(200)
+              .attr("r", d.data.type === "directory" ? 12 : 9);
+            
+            // ノードの種類に応じてツールチップの内容を変更
+            let tooltipContent = "";
+            
+            if (d.data.type === "file") {
+              // ファイルノードの場合は、すべてのプロパティを表示
+              tooltipContent = \`
+                <strong>\${d.data.name}</strong><br/>
+                <small>\${d.data.path}</small><br/>
+              \`;
+              
+              // 説明がある場合は追加
+              if (d.data.description) {
+                tooltipContent += \`<div style="margin-top: 8px;"><strong>説明:</strong><br/>\${d.data.description}</div>\`;
+              }
+              
+              // 外部インポートがある場合は追加
+              if (d.data.externalImports && d.data.externalImports.length > 0) {
+                tooltipContent += \`
+                  <div style="margin-top: 8px;">
+                    <strong>外部インポート:</strong>
+                    <ul style="margin: 5px 0; padding-left: 20px;">
+                      \${d.data.externalImports.map(imp => \`<li>\${imp}</li>\`).join("")}
+                    </ul>
+                  </div>
+                \`;
+              }
+              
+              // 内部インポートがある場合は追加
+              if (d.data.internalImports && d.data.internalImports.length > 0) {
+                tooltipContent += \`
+                  <div style="margin-top: 8px;">
+                    <strong>内部インポート:</strong>
+                    <ul style="margin: 5px 0; padding-left: 20px;">
+                      \${d.data.internalImports.map(imp => \`<li>\${imp}</li>\`).join("")}
+                    </ul>
+                  </div>
+                \`;
+              }
+              
+              // 関数がある場合は追加
+              if (d.data.functions && d.data.functions.length > 0) {
+                tooltipContent += \`
+                  <div style="margin-top: 8px;">
+                    <strong>関数:</strong>
+                    <ul style="margin: 5px 0; padding-left: 20px;">
+                      \${d.data.functions.map(func => {
+                        let funcDetails = \`<li><code>\${func.name}</code>\`;
+                        if (func.description) {
+                          funcDetails += \` - \${func.description}\`;
+                        }
+                        funcDetails += \`</li>\`;
+                        return funcDetails;
+                      }).join("")}
+                    </ul>
+                  </div>
+                \`;
+              }
+              
+              // その他のプロパティがあれば追加（上記以外のプロパティを検出して表示）
+              const knownProps = ["name", "path", "type", "description", "externalImports", "internalImports", "functions", "children"];
+              const otherProps = Object.keys(d.data).filter(key => !knownProps.includes(key));
+              
+              if (otherProps.length > 0) {
+                tooltipContent += \`
+                  <div style="margin-top: 8px;">
+                    <strong>その他のプロパティ:</strong>
+                    <ul style="margin: 5px 0; padding-left: 20px;">
+                      \${otherProps.map(key => {
+                        const value = typeof d.data[key] === 'object' ? JSON.stringify(d.data[key], null, 2) : d.data[key];
+                        return \`<li>\${key}: \${value}</li>\`;
+                      }).join("")}
+                    </ul>
+                  </div>
+                \`;
+              }
+            } else if (d.data.type === "directory") {
+              // ディレクトリノードの場合は、名前と情報を表示
+              tooltipContent = \`
+                <strong>\${d.data.name} (ディレクトリ)</strong><br/>
+                <small>子要素数: \${d.children ? d.children.length : 0}</small>
+              \`;
+            } else {
+              // その他のノードタイプの場合
+              tooltipContent = \`<strong>\${d.data.name}</strong>\`;
+            }
+            
+            // ツールチップを表示
+            tooltip.transition()
+              .duration(200)
+              .style("opacity", .9);
+            
+            tooltip.html(tooltipContent)
+              .style("left", (event.pageX + 10) + "px")
+              .style("top", (event.pageY - 28) + "px");
+          })
+          .on("mouseout", function(event, d) {
+            // ハイライトを元に戻す
+            d3.select(this).select("circle")
+              .transition()
+              .duration(200)
+              .attr("r", d.data.type === "directory" ? 10 : 7);
+              
+            tooltip.transition()
+              .duration(500)
+              .style("opacity", 0);
+          });
+          
+          // コントロールボタンの機能実装
+          const zoom = d3.zoom().on("zoom", (event) => {
+            g.attr("transform", event.transform);
+          });
+          
+          d3.select("#zoomIn").on("click", function() {
+            svg.transition().call(zoom.scaleBy, 1.3);
+          });
+          
+          d3.select("#zoomOut").on("click", function() {
+            svg.transition().call(zoom.scaleBy, 0.7);
+          });
+          
+          d3.select("#resetZoom").on("click", function() {
+            svg.transition().call(zoom.transform, d3.zoomIdentity);
+          });
+          
+          // 初期位置を調整（全体が見えるように）
+          const initialScale = 0.6;
+          svg.call(zoom.transform, d3.zoomIdentity
+            .translate(width / 5, 20)
+            .scale(initialScale));
+          
+          // VSCodeへのメッセージ送信関数
+          const vscode = acquireVsCodeApi();
+          function sendMessage(message) {
+            vscode.postMessage(message);
+          }
+        })();
+      </script>
+    </body>
+    </html>
+  `;
 }
 
 // コード解析関数
@@ -451,637 +994,6 @@ function processFunction(
   }
 
   functionsArray.push(functionInfo);
-}
-
-// D3.js用のデータ構造を生成する関数
-function generateD3Data(projectStructure: any): any {
-  const nodes: any[] = [];
-  const links: any[] = [];
-  const nodeMap = new Map<string, number>(); // パスからインデックスへのマッピング
-
-  // ノードを生成する再帰関数
-  function processNode(
-    node: any,
-    parentIndex: number | null = null,
-    nodePath: string = "",
-    depth: number = 0
-  ) {
-    // このノードのインデックス
-    const currentIndex = nodes.length;
-
-    // パスをインデックスにマッピング
-    if (nodePath) {
-      nodeMap.set(nodePath, currentIndex);
-    }
-
-    if (node.name) {
-      // ノード情報を作成
-      const nodeInfo: any = {
-        id: currentIndex,
-        name: node.name,
-        isDirectory: !!node.directories,
-        depth: depth,
-      };
-
-      // ファイルの説明がある場合は追加
-      if (node.fileDescription) {
-        nodeInfo.description = node.fileDescription;
-      }
-
-      // 関数数を追加
-      if (node.functions && node.functions.length > 0) {
-        nodeInfo.functions = node.functions.length;
-      }
-
-      // ノードリストに追加
-      nodes.push(nodeInfo);
-
-      // 親が存在する場合はリンクを追加
-      if (parentIndex !== null) {
-        links.push({
-          source: parentIndex,
-          target: currentIndex,
-          type: "hierarchy",
-        });
-      }
-
-      // 内部インポートの依存関係を追加
-      if (node.internalImports && node.internalImports.length > 0) {
-        node.internalImports.forEach((importPath: string) => {
-          // 相対パスを解決
-          let resolvedPath = importPath;
-          if (importPath.startsWith(".")) {
-            const dir = path.dirname(nodePath);
-            resolvedPath = path.normalize(path.join(dir, importPath));
-            if (!path.extname(resolvedPath)) {
-              const extensions = [".ts", ".tsx", ".js", ".jsx"];
-              for (const ext of extensions) {
-                const pathWithExt = resolvedPath + ext;
-                if (nodeMap.has(pathWithExt) || fs.existsSync(pathWithExt)) {
-                  resolvedPath = pathWithExt;
-                  break;
-                }
-              }
-            }
-          } else if (importPath.startsWith("@/")) {
-            resolvedPath = importPath.replace("@/", "src/");
-            if (!path.extname(resolvedPath)) {
-              const extensions = [".ts", ".tsx", ".js", ".jsx"];
-              for (const ext of extensions) {
-                const pathWithExt = resolvedPath + ext;
-                if (nodeMap.has(pathWithExt) || fs.existsSync(pathWithExt)) {
-                  resolvedPath = pathWithExt;
-                  break;
-                }
-              }
-            }
-          }
-
-          // 依存関係情報を保存
-          links.push({
-            source: currentIndex,
-            target: resolvedPath,
-            type: "dependency",
-            isResolved: false,
-          });
-        });
-      }
-    }
-
-    // サブディレクトリを処理
-    if (node.directories) {
-      for (const dirName in node.directories) {
-        const childPath = nodePath ? path.join(nodePath, dirName) : dirName;
-        processNode(
-          node.directories[dirName],
-          currentIndex,
-          childPath,
-          depth + 1
-        );
-      }
-    }
-
-    // ファイルを処理
-    if (node.files && node.files.length > 0) {
-      node.files.forEach((file: any) => {
-        const filePath = file.path;
-        processNode(file, currentIndex, filePath, depth + 1);
-      });
-    }
-  }
-
-  // ルートから処理開始
-  processNode(projectStructure.root);
-
-  // 依存関係リンクを解決
-  const resolvedLinks = links.filter((link) => {
-    if (link.type === "hierarchy" || link.isResolved) {
-      return true;
-    }
-
-    // 文字列のターゲットをノードインデックスに解決
-    if (typeof link.target === "string") {
-      const targetIndex = nodeMap.get(link.target);
-      if (targetIndex !== undefined) {
-        link.target = targetIndex;
-        link.isResolved = true;
-        return true;
-      }
-    }
-
-    return false;
-  });
-
-  return { nodes, links: resolvedLinks };
-}
-
-// D3.jsでの可視化を表示する関数
-function showD3Visualization(extensionUri: vscode.Uri, data: any) {
-  const panel = vscode.window.createWebviewPanel(
-    "d3Visualization",
-    "Code Structure with D3.js",
-    vscode.ViewColumn.One,
-    {
-      enableScripts: true,
-    }
-  );
-
-  panel.webview.html = `
-    <!DOCTYPE html>
-    <html lang="ja">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>コード構造図</title>
-      <script src="https://d3js.org/d3.v7.min.js"></script>
-      <style>
-        body { 
-          font-family: sans-serif; 
-          margin: 0;
-          overflow: hidden;
-        }
-        .container {
-          position: relative;
-          width: 100vw;
-          height: 100vh;
-        }
-        .controls {
-          position: absolute;
-          top: 10px;
-          left: 10px;
-          z-index: 10;
-          background: rgba(255, 255, 255, 0.8);
-          padding: 10px;
-          border-radius: 5px;
-        }
-        .node {
-          cursor: pointer;
-        }
-        .link {
-          stroke-width: 1.5px;
-        }
-        .directory {
-          fill: #ffd700;
-        }
-        .file {
-          fill: #add8e6;
-        }
-        .tooltip {
-          position: absolute;
-          background: white;
-          border: 1px solid #ccc;
-          border-radius: 5px;
-          padding: 10px;
-          pointer-events: none;
-          opacity: 0;
-          transition: opacity 0.3s;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="controls">
-          <button id="zoomIn">拡大</button>
-          <button id="zoomOut">縮小</button>
-          <button id="reset">リセット</button>
-          <select id="layout">
-            <option value="force">力学的レイアウト</option>
-            <option value="radial">放射状レイアウト</option>
-            <option value="tree">ツリーレイアウト</option>
-          </select>
-        </div>
-        <div id="tooltip" class="tooltip"></div>
-        <svg id="visualization"></svg>
-      </div>
-      <script>
-        // データを初期化
-        const data = ${JSON.stringify(data)};
-        
-        // SVG要素のサイズを設定
-        const width = window.innerWidth;
-        const height = window.innerHeight;
-        const svg = d3.select("#visualization")
-          .attr("width", width)
-          .attr("height", height);
-        
-        // ズーム機能
-        const zoom = d3.zoom()
-          .scaleExtent([0.1, 10])
-          .on("zoom", zoomed);
-        
-        svg.call(zoom);
-        
-        // グラフコンテナ
-        const g = svg.append("g");
-        
-        // ツールチップ
-        const tooltip = d3.select("#tooltip");
-        
-        // ズーム処理関数
-        function zoomed(event) {
-          g.attr("transform", event.transform);
-        }
-        
-        // ノードの色を決定
-        function getNodeColor(d) {
-          return d.isDirectory ? "#ffd700" : "#add8e6";
-        }
-        
-        // ノード間を結ぶリンクの色を決定
-        function getLinkColor(d) {
-          return d.type === "hierarchy" ? "#999" : "#f00";
-        }
-        
-        // リンクのスタイルを決定
-        function getLinkStyle(d) {
-          return d.type === "hierarchy" ? "" : "3,3";
-        }
-        
-        // 力学的レイアウト
-        function applyForceLayout() {
-          // ノードとリンクの作成
-          const nodes = data.nodes.map(d => Object.assign({}, d));
-          const links = data.links.map(d => Object.assign({}, d));
-          
-          // シミュレーションの設定
-          const simulation = d3.forceSimulation(nodes)
-            .force("link", d3.forceLink(links).id(d => d.id).distance(100))
-            .force("charge", d3.forceManyBody().strength(-300))
-            .force("center", d3.forceCenter(width / 2, height / 2))
-            .force("collide", d3.forceCollide().radius(50));
-          
-          // リンクの描画
-          const link = g.selectAll(".link")
-            .data(links)
-            .join("line")
-            .attr("class", "link")
-            .attr("stroke", getLinkColor)
-            .attr("stroke-dasharray", getLinkStyle);
-          
-          // ノードの描画
-          const node = g.selectAll(".node")
-            .data(nodes)
-            .join("g")
-            .attr("class", "node")
-            .call(d3.drag()
-              .on("start", dragstarted)
-              .on("drag", dragged)
-              .on("end", dragended));
-          
-          // ノードの円を追加
-          node.append("circle")
-            .attr("r", d => d.isDirectory ? 15 : 8)
-            .attr("fill", getNodeColor)
-            .attr("stroke", "#fff")
-            .attr("stroke-width", 1.5);
-          
-          // ノードのラベルを追加
-          node.append("text")
-            .attr("dy", 25)
-            .attr("text-anchor", "middle")
-            .text(d => d.name)
-            .style("font-size", "10px")
-            .style("pointer-events", "none");
-          
-          // ツールチップの処理
-          node.on("mouseover", function(event, d) {
-            let content = \`<strong>\${d.name}</strong>\`;
-            if (d.description) {
-              content += \`<br>\${d.description}\`;
-            }
-            if (d.functions) {
-              content += \`<br>関数数: \${d.functions}\`;
-            }
-            
-            tooltip
-              .html(content)
-              .style("left", (event.pageX + 10) + "px")
-              .style("top", (event.pageY - 10) + "px")
-              .style("opacity", 1);
-          })
-          .on("mouseout", function() {
-            tooltip.style("opacity", 0);
-          });
-          
-          // シミュレーションの更新
-          simulation.on("tick", () => {
-            link
-              .attr("x1", d => d.source.x)
-              .attr("y1", d => d.source.y)
-              .attr("x2", d => d.target.x)
-              .attr("y2", d => d.target.y);
-            
-            node.attr("transform", d => \`translate(\${d.x},\${d.y})\`);
-          });
-          
-          // ドラッグ関連の関数
-          function dragstarted(event, d) {
-            if (!event.active) simulation.alphaTarget(0.3).restart();
-            d.fx = d.x;
-            d.fy = d.y;
-          }
-          
-          function dragged(event, d) {
-            d.fx = event.x;
-            d.fy = event.y;
-          }
-          
-          function dragended(event, d) {
-            if (!event.active) simulation.alphaTarget(0);
-            d.fx = null;
-            d.fy = null;
-          }
-          
-          return simulation;
-        }
-        
-        // 放射状レイアウト
-        function applyRadialLayout() {
-          g.selectAll("*").remove();
-          
-          const radius = Math.min(width, height) / 2 - 100;
-          const rootNode = data.nodes[0];
-          
-          // 階層構造を構築
-          const hierarchyData = d3.stratify()
-            .id(d => d.id)
-            .parentId(d => {
-              const parentLink = data.links.find(link => 
-                link.type === "hierarchy" && link.target === d.id
-              );
-              return parentLink ? parentLink.source : null;
-            })
-            (data.nodes);
-          
-          // レイアウトの計算
-          const radialLayout = d3.tree()
-            .size([2 * Math.PI, radius])
-            .separation((a, b) => (a.parent === b.parent ? 1 : 2) / a.depth);
-          
-          const rootLayout = radialLayout(hierarchyData);
-          
-          // リンクの描画
-          g.selectAll(".link")
-            .data(rootLayout.links())
-            .join("path")
-            .attr("class", "link")
-            .attr("d", d3.linkRadial()
-              .angle(d => d.x)
-              .radius(d => d.y))
-            .attr("fill", "none")
-            .attr("stroke", "#999");
-          
-          // 依存関係リンクを追加
-          const dependencyLinks = data.links.filter(d => d.type === "dependency");
-          if (dependencyLinks.length > 0) {
-            // 依存関係の座標を計算
-            const nodePositions = {};
-            rootLayout.each(node => {
-              nodePositions[node.id] = {
-                x: node.x,
-                y: node.y
-              };
-            });
-            
-            g.selectAll(".dependency")
-              .data(dependencyLinks)
-              .join("path")
-              .attr("class", "dependency")
-              .attr("d", d => {
-                const sourcePos = nodePositions[d.source];
-                const targetPos = nodePositions[d.target];
-                if (sourcePos && targetPos) {
-                  const sourceX = sourcePos.y * Math.cos(sourcePos.x) + width / 2;
-                  const sourceY = sourcePos.y * Math.sin(sourcePos.x) + height / 2;
-                  const targetX = targetPos.y * Math.cos(targetPos.x) + width / 2;
-                  const targetY = targetPos.y * Math.sin(targetPos.x) + height / 2;
-                  return \`M\${sourceX},\${sourceY}L\${targetX},\${targetY}\`;
-                }
-                return "";
-              })
-              .attr("fill", "none")
-              .attr("stroke", "#f00")
-              .attr("stroke-dasharray", "3,3");
-          }
-          
-          // ノードを描画
-          const node = g.selectAll(".node")
-            .data(rootLayout.descendants())
-            .join("g")
-            .attr("class", "node")
-            .attr("transform", d => \`translate(\${d.y * Math.cos(d.x) + width / 2},\${d.y * Math.sin(d.x) + height / 2})\`);
-          
-          // ノードの円を追加
-          node.append("circle")
-            .attr("r", d => d.data.isDirectory ? 12 : 6)
-            .attr("fill", d => d.data.isDirectory ? "#ffd700" : "#add8e6");
-          
-          // ノードのラベルを追加
-          node.append("text")
-            .attr("dy", 20)
-            .attr("text-anchor", "middle")
-            .text(d => d.data.name)
-            .style("font-size", "9px");
-          
-          // ツールチップの処理
-          node.on("mouseover", function(event, d) {
-            let content = \`<strong>\${d.data.name}</strong>\`;
-            if (d.data.description) {
-              content += \`<br>\${d.data.description}\`;
-            }
-            if (d.data.functions) {
-              content += \`<br>関数数: \${d.data.functions}\`;
-            }
-            
-            tooltip
-              .html(content)
-              .style("left", (event.pageX + 10) + "px")
-              .style("top", (event.pageY - 10) + "px")
-              .style("opacity", 1);
-          })
-          .on("mouseout", function() {
-            tooltip.style("opacity", 0);
-          });
-        }
-        
-        // ツリーレイアウト
-        function applyTreeLayout() {
-          g.selectAll("*").remove();
-          
-          // 階層構造を構築
-          const hierarchyData = d3.stratify()
-            .id(d => d.id)
-            .parentId(d => {
-              const parentLink = data.links.find(link => 
-                link.type === "hierarchy" && link.target === d.id
-              );
-              return parentLink ? parentLink.source : null;
-            })
-            (data.nodes);
-          
-          // レイアウトの計算
-          const treeLayout = d3.tree()
-            .size([height - 100, width - 200]);
-          
-          const rootLayout = treeLayout(hierarchyData);
-          
-          // リンクの描画
-          g.selectAll(".link")
-            .data(rootLayout.links())
-            .join("path")
-            .attr("class", "link")
-            .attr("d", d3.linkHorizontal()
-              .x(d => d.y)
-              .y(d => d.x))
-            .attr("fill", "none")
-            .attr("stroke", "#999");
-          
-          // 依存関係リンクを追加
-          const dependencyLinks = data.links.filter(d => d.type === "dependency");
-          if (dependencyLinks.length > 0) {
-            // 依存関係の座標を計算
-            const nodePositions = {};
-            rootLayout.each(node => {
-              nodePositions[node.id] = {
-                x: node.x,
-                y: node.y
-              };
-            });
-            
-            g.selectAll(".dependency")
-              .data(dependencyLinks)
-              .join("path")
-              .attr("class", "dependency")
-              .attr("d", d => {
-                const sourcePos = nodePositions[d.source];
-                const targetPos = nodePositions[d.target];
-                if (sourcePos && targetPos) {
-                  return \`M\${sourcePos.y},\${sourcePos.x}C\${(sourcePos.y + targetPos.y) / 2},\${sourcePos.x} \${(sourcePos.y + targetPos.y) / 2},\${targetPos.x} \${targetPos.y},\${targetPos.x}\`;
-                }
-                return "";
-              })
-              .attr("fill", "none")
-              .attr("stroke", "#f00")
-              .attr("stroke-dasharray", "3,3");
-          }
-          
-          // ノードを描画
-          const node = g.selectAll(".node")
-            .data(rootLayout.descendants())
-            .join("g")
-            .attr("class", "node")
-            .attr("transform", d => \`translate(\${d.y},\${d.x})\`);
-          
-          // ノードの円を追加
-          node.append("circle")
-            .attr("r", d => d.data.isDirectory ? 12 : 6)
-            .attr("fill", d => d.data.isDirectory ? "#ffd700" : "#add8e6");
-          
-          // ノードのラベルを追加
-          node.append("text")
-            .attr("dy", 3)
-            .attr("x", d => d.children ? -15 : 15)
-            .attr("text-anchor", d => d.children ? "end" : "start")
-            .text(d => d.data.name)
-            .style("font-size", "10px");
-          
-          // ツールチップの処理
-          node.on("mouseover", function(event, d) {
-            let content = \`<strong>\${d.data.name}</strong>\`;
-            if (d.data.description) {
-              content += \`<br>\${d.data.description}\`;
-            }
-            if (d.data.functions) {
-              content += \`<br>関数数: \${d.data.functions}\`;
-            }
-            
-            tooltip
-              .html(content)
-              .style("left", (event.pageX + 10) + "px")
-              .style("top", (event.pageY - 10) + "px")
-              .style("opacity", 1);
-          })
-          .on("mouseout", function() {
-            tooltip.style("opacity", 0);
-          });
-        }
-        
-        // 初期レイアウトとして力学的レイアウトを適用
-        let currentSimulation = applyForceLayout();
-        
-        // レイアウト切り替え処理
-        d3.select("#layout").on("change", function() {
-          const layout = this.value;
-          if (currentSimulation) {
-            currentSimulation.stop();
-          }
-          g.selectAll("*").remove();
-          
-          if (layout === "force") {
-            currentSimulation = applyForceLayout();
-          } else if (layout === "radial") {
-            applyRadialLayout();
-            currentSimulation = null;
-          } else if (layout === "tree") {
-            applyTreeLayout();
-            currentSimulation = null;
-          }
-        });
-        
-        // ズームコントロール
-        d3.select("#zoomIn").on("click", function() {
-          svg.transition().call(zoom.scaleBy, 1.5);
-        });
-        
-        d3.select("#zoomOut").on("click", function() {
-          svg.transition().call(zoom.scaleBy, 0.75);
-        });
-        
-        d3.select("#reset").on("click", function() {
-          svg.transition().call(zoom.transform, d3.zoomIdentity);
-        });
-        
-        // ウィンドウリサイズ処理
-        window.addEventListener("resize", function() {
-          const width = window.innerWidth;
-          const height = window.innerHeight;
-          svg.attr("width", width).attr("height", height);
-          
-          // レイアウトの再適用
-          const layout = document.getElementById("layout").value;
-          if (layout === "force" && currentSimulation) {
-            currentSimulation.force("center", d3.forceCenter(width / 2, height / 2));
-            currentSimulation.alpha(0.3).restart();
-          } else if (layout === "radial") {
-            applyRadialLayout();
-          } else if (layout === "tree") {
-            applyTreeLayout();
-          }
-        });
-      </script>
-    </body>
-    </html>
-  `;
 }
 
 // 拡張機能の非アクティベート関数（クリーンアップ）
