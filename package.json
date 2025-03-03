@@ -1,0 +1,55 @@
+{
+  "name": "code-is-document",
+  "displayName": "code-is-document",
+  "description": "",
+  "version": "0.0.1",
+  "publisher": "champaya",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:code-is-document.showDependencies",
+    "onCommand:code-is-document.showMermaidDiagram"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "code-is-document.showDependencies",
+        "title": "Show Code is Document"
+      },
+      {
+        "command": "code-is-document.showMermaidDiagram",
+        "title": "Show Code as Mermaid Diagram"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "20.x",
+    "@types/vscode": "^1.80.0",
+    "@typescript-eslint/eslint-plugin": "^8.17.0",
+    "@typescript-eslint/parser": "^8.17.0",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1",
+    "eslint": "^9.16.0",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "ignore": "^7.0.3",
+    "js-yaml": "^4.1.0",
+    "ts-morph": "^25.0.1"
+  }
+}
