@@ -15,12 +15,12 @@
   "contributes": {
     "commands": [
       {
-        "command": "code-is-document.showDependencies",
-        "title": "Show Code is Document"
+        "command": "code-is-document.createDocument",
+        "title": "Create Document"
       },
       {
-        "command": "code-is-document.visualizeStructure",
-        "title": "Visualize Code Structure"
+        "command": "code-is-document.visualizeDocument",
+        "title": "Visualize Document"
       }
     ]
   },

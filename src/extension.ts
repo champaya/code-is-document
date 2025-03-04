@@ -19,7 +19,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // 最初のコマンド（YAML出力）の登録
   const dependenciesCommand = vscode.commands.registerCommand(
-    "code-is-document.showDependencies",
+    "code-is-document.createDocument",
     async () => {
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (!workspaceFolders) {
@@ -54,7 +54,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // 新しいコマンド（D3.js可視化）の登録
   const visualizeCommand = vscode.commands.registerCommand(
-    "code-is-document.visualizeStructure",
+    "code-is-document.visualizeDocument",
     async () => {
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (!workspaceFolders) {
@@ -80,7 +80,7 @@ export function activate(context: vscode.ExtensionContext) {
           if (result === "はい") {
             // 解析コマンドを実行
             await vscode.commands.executeCommand(
-              "code-is-document.showDependencies"
+              "code-is-document.createDocument"
             );
           } else {
             return;
