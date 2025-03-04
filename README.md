@@ -8,8 +8,60 @@
 **基本思想**
 
 拡張機能実行で作成される`code-document.yaml`にプロジェクトのコンテキストを詰め込みます。
-このファイルを LLM に渡すことで、圧縮されたプロジェクトのコンテキストを理解させます。  
+このファイルを LLM に渡すことで、圧縮されたプロジェクトのコンテキストを理解させます。
+
 `code-document.yaml` に適切に情報を入れるために、コード内にコメントを記載することを忘れないでください。必要なコメントは、ファイル先頭に記載するコメント（`fileDescription`）とトップレベルの関数のコメント（`functions`）です。
+
+以下は含めるべきコメントを入れたサンプルコードです。
+
+```tsx
+/**
+ * ここがfileDescriptionに入る
+ *
+ * Greeting コンポーネント
+ * シンプルな挨拶を表示するためのコンポーネントです。
+ * 名前をカスタマイズできます。
+ */
+import React from "react";
+import { formatText } from "@/utils/format";
+
+interface GreetingProps {
+  name?: string;
+  isSpecial?: boolean;
+}
+
+/**
+ * ここがfunctionsに入る
+ *
+ * 挨拶を表示するコンポーネント
+ * @param {object} props - コンポーネントのプロパティ
+ * @param {string} props.name - 挨拶する相手の名前（デフォルト: "Guest"）
+ * @param {boolean} props.isSpecial - 特別な挨拶にするかどうか
+ * @returns {JSX.Element} 挨拶メッセージを表示する要素
+ */
+export function Greeting({ name = "Guest", isSpecial = false }: GreetingProps) {
+  const message = isSpecial
+    ? `特別な挨拶: こんにちは、${name}さん!`
+    : `こんにちは、${name}さん`;
+
+  return <div className="greeting">{formatText(message)}</div>;
+}
+
+/**
+ * ここがfunctionsに入る
+ *
+ * 現在の時間に基づいて適切な挨拶文を生成する
+ * @param {string} userName - 挨拶する相手の名前
+ * @returns {string} 時間帯に合わせた挨拶文
+ */
+export function getTimeBasedGreeting(userName: string): string {
+  const hour = new Date().getHours();
+
+  if (hour < 12) return `おはようございます、${userName}さん`;
+  if (hour < 18) return `こんにちは、${userName}さん`;
+  return `こんばんは、${userName}さん`;
+}
+```
 
 YAML の構造について詳しくは[解析後 yaml ファイルの構造](#解析後-yaml-ファイルの構造)を参照してください。
 
