@@ -65,7 +65,7 @@ export function getTimeBasedGreeting(userName: string): string {
 
 YAML の構造について詳しくは[解析後 yaml ファイルの構造](#解析後-yaml-ファイルの構造)を参照してください。
 
-**推奨事項**
+⚠️⚠️⚠️**推奨事項**⚠️⚠️⚠️
 
 cursor や windsurf の rules に「コードコメントを必ず含める」旨を追加することを推奨します。  
 これにより、自動的にコメントが作成され、`code-document.yaml` に適切な情報が入ります。
