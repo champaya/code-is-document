@@ -5,6 +5,11 @@
 「Code is Document」は、LLM ファーストの開発をサポートする VSCode 拡張機能です。  
 コードをドキュメントとして扱うことで、人間と LLM の両者がメンテナンスし続けられるプロジェクトを目指します。
 
+### インストール方法
+VScode, Cursor, Windsurfの拡張機能欄で`code-is-document`と検索してインストールしてください。
+![スクリーンショット 2025-03-06 8 42 25](https://github.com/user-attachments/assets/c6f9c431-c8a5-42fb-851c-13278dc8e578)
+
+
 ### 基本思想
 
 拡張機能実行で作成される`code-document.yaml`にプロジェクトのコンテキストを詰め込みます。
